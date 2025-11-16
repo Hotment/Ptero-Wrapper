@@ -1,52 +1,65 @@
 # Ptero-Wrapper
 An asynchronous, feature-rich Python wrapper for the Pterodactyl Panel API.
+
 `ptero-wrapper` is designed to provide a clean, modern, and fully `async` interface for both the Pterodactyl **Client API** and **Application API.** It's built on `httpx` and `asyncio`, making it highly performant for modern applications.
 
-A key feature of this wrapper is its built-in support for **dual-panel operation**, allowing you to seamlessly manage servers across two different Pterodactyl instances (e.g., a primary panel and an OCI panel) with a single controller.
+A key feature of this wrapper is its built-in support for **multi-panel operation**, allowing you to seamlessly manage servers across multiple different Pterodactyl instances with a single controller.
 
-# Features
-- **Fully Asynchronous:** Uses `async/await` and httpx for high-performance, non-blocking I/O.
+## Features
+- **Fully Asynchronous:** Uses `async/await` and `httpx` for high-performance, non-blocking I/O.
 - **Complete API Coverage:** Provides methods for all Client and Application API endpoints.
-- **Dual-Panel Support:** Natively handles separate API keys and URLs for two distinct Pterodactyl instances.
+- **Multi-Panel Support:** Natively handles API keys and URLs for multiple distinct Pterodactyl instances.
 - **Object-Oriented Models:** All API responses are parsed into clean, type-hinted data models (e.g., `ClientServer`, `Node`, `User`, `Backup`).
 - **Relationship Handling:** Intelligently links related objects. A `ClientServer` object can have its `Node` and `Owner` (User) objects pre-attached. Models like `Nest` and `Egg` can lazy-load each other.
 - **Real-time Websockets:** Includes helper methods for authenticating to the client websocket and capturing real-time console output.
 
-# Installation
-```pip install ptero-wrapper```
+## Installation
+```
+pip install ptero-wrapper
+```
 
-# Quick Start
+## Quick Start
 Here's a simple example of how to instantiate the controller and manage a server.
 ```python
 import asyncio
-from ptero_wrapper import PteroControl
+from ptero_wrapper import PteroControl, Panel
 
-# API keys (only provide the ones you need)
-CLIENT_KEY = "ptlc_..."
-APP_KEY = "ptla_..."
-CLIENT_KEY_OCI = "ptlc_..."
-APP_KEY_OCI = "ptla_..."
+# Define your panel configurations
+panels_config = [
+    Panel(
+        id='main_panel',
+        base_url='[https://panel.example.com/api](https://panel.example.com/api)',
+        client_key='ptlc_MainKey...',
+        app_key='ptla_MainKey...'
+    ),
+    Panel(
+        id='oci_panel',
+        base_url='[http://panel2.example.com/api](http://panel2.example.com/api)',
+        client_key='ptlc_OciKey...',
+        app_key='ptla_OciKey...'
+    ),
+    Panel(
+        id='test_panel',
+        base_url='[http://testpanel.example.com/api](http://testpanel.example.com/api)',
+        client_key='ptlc_TestKey...'
+        # This panel has no app key
+    )
+]
 
 async def main():
     # Instantiate the main controller
-    # You can also customize base_url and oci_base_url
-    control = PteroControl(
-        client_api_key=CLIENT_KEY,
-        app_api_key=APP_KEY,
-        client_oci_api_key=CLIENT_KEY_OCI,
-        app_oci_api_key=APP_KEY_OCI
-    )
+    control = PteroControl(panels=panels_config)
 
     try:
         # --- Client API Example ---
-        print("Fetching servers...")
+        print("Fetching servers from ALL panels...")
         servers = await control.get_servers()
         if not servers:
             print("No servers found.")
             return
 
         server = servers[0]
-        print(f"Found server: {server.name} (State: {server.resources.current_state})")
+        print(f"Found server: {server.name} (Panel: {server.panel_id}, State: {server.resources.current_state})")
 
         # Send a power signal
         # await server.start()
@@ -58,14 +71,17 @@ async def main():
             print(f"Server List: {output}")
 
         # --- Application API Example ---
-        print("\nFetching nodes...")
-        nodes = await control.app.get_nodes()
-        for node in nodes:
-            print(f"- Node: {node.name} (Location: {node.location.short_code})")
+        print("\nFetching nodes from 'main_panel'...")
+        # Access a specific panel's API
+        if 'main_panel' in control.app_apis:
+            nodes = await control.app_apis['main_panel'].get_nodes()
+            for node in nodes:
+                print(f"- Node: {node.name} (Location: {node.location.short_code})")
         
         # --- Relationship Example ---
-        print(f"\nServer {server.name} is on Node: {server.node.name}")
-        print(f"Server {server.name} is owned by: {server.owner.username}")
+        if server.node and server.owner:
+            print(f"\nServer {server.name} is on Node: {server.node.name}")
+            print(f"Server {server.name} is owned by: {server.owner.username}")
 
 
     except Exception as e:
@@ -78,5 +94,5 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-# License
+## License
 This project is licensed under the MIT License.
