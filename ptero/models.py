@@ -4,6 +4,7 @@ Contains all the data classes used to parse responses from the Pterodactyl API.
 """
 
 from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from dataclasses import dataclass
 
 if TYPE_CHECKING:
     from .application import ApplicationAPI
@@ -164,8 +165,9 @@ class NodeAllocation:
 
 class Location:
     """Represents a Location from the Application API."""
-    def __init__(self, loc_data: dict, api: Optional['ApplicationAPI'] = None):
+    def __init__(self, loc_data: dict, api: Optional['ApplicationAPI'] = None, panel_id: Optional[str] = None):
         self.api = api
+        self.panel_id = panel_id
         self.data: dict = loc_data["attributes"]
         self.id: int = self.data["id"]
         self.short_code: str = self.data["short"]
@@ -175,7 +177,7 @@ class Location:
         
         # Eager-loaded relationships
         nodes_data = loc_data.get("relationships", {}).get("nodes", {}).get("data", [])
-        self.nodes: List['Node'] = [Node(n_data, api=api) for n_data in nodes_data]
+        self.nodes: List['Node'] = [Node(n_data, api=api, panel_id=panel_id) for n_data in nodes_data]
 
     async def get_nodes(self) -> List['Node']:
         """(Re-)fetches the list of nodes for this location."""
@@ -186,8 +188,9 @@ class Location:
 
 class Node:
     """Represents a Node from the Application API."""
-    def __init__(self, node_data: dict, api: Optional['ApplicationAPI'] = None):
+    def __init__(self, node_data: dict, api: Optional['ApplicationAPI'] = None, panel_id: Optional[str] = None):
         self.api = api
+        self.panel_id = panel_id
         self.data: dict = node_data["attributes"]
         self.id: int = self.data["id"]
         self.uuid: str = self.data["uuid"]
@@ -213,7 +216,7 @@ class Node:
         self.allocations: List[NodeAllocation] = [NodeAllocation(alloc) for alloc in alloc_data]
         
         loc_data = node_data.get("relationships", {}).get("location", {}).get("data")
-        self.location: Optional[Location] = Location(loc_data, api=api) if loc_data else None
+        self.location: Optional[Location] = Location(loc_data, api=api, panel_id=panel_id) if loc_data else None
 
     async def get_location(self) -> Optional[Location]:
         """(Re-)fetches the location for this node."""
@@ -224,8 +227,9 @@ class Node:
 
 class User:
     """Represents a User from the Application API."""
-    def __init__(self, user_data: dict, api: Optional['ApplicationAPI'] = None):
+    def __init__(self, user_data: dict, api: Optional['ApplicationAPI'] = None, panel_id: Optional[str] = None):
         self.api = api
+        self.panel_id = panel_id
         self.data: dict = user_data["attributes"]
         self.id: int = self.data["id"]
         self.external_id: Optional[str] = self.data.get("external_id")
@@ -248,8 +252,9 @@ class User:
 
 class Nest:
     """Represents a Nest from the Application API."""
-    def __init__(self, nest_data: dict, api: Optional['ApplicationAPI'] = None):
+    def __init__(self, nest_data: dict, api: Optional['ApplicationAPI'] = None, panel_id: Optional[str] = None):
         self.api = api
+        self.panel_id = panel_id
         self.data: dict = nest_data["attributes"]
         self.id: int = self.data["id"]
         self.uuid: str = self.data["uuid"]
@@ -261,7 +266,7 @@ class Nest:
 
         # Eager-loaded relationships
         eggs_data = nest_data.get("relationships", {}).get("eggs", {}).get("data", [])
-        self.eggs: List['Egg'] = [Egg(egg_data, api=api) for egg_data in eggs_data]
+        self.eggs: List['Egg'] = [Egg(egg_data, api=api, panel_id=panel_id) for egg_data in eggs_data]
 
     async def get_eggs(self) -> List['Egg']:
         """(Re-)fetches the list of eggs for this nest."""
@@ -272,8 +277,9 @@ class Nest:
 
 class Egg:
     """Represents an Egg from the Application API."""
-    def __init__(self, egg_data: dict, api: Optional['ApplicationAPI'] = None):
+    def __init__(self, egg_data: dict, api: Optional['ApplicationAPI'] = None, panel_id: Optional[str] = None):
         self.api = api
+        self.panel_id = panel_id
         self.data: dict = egg_data["attributes"]
         self.id: int = self.data["id"]
         self.uuid: str = self.data["uuid"]
@@ -288,7 +294,7 @@ class Egg:
         
         # Eager-loaded relationships
         nest_data = egg_data.get("relationships", {}).get("nest", {}).get("data")
-        self.nest: Optional[Nest] = Nest(nest_data, api=api) if nest_data else None
+        self.nest: Optional[Nest] = Nest(nest_data, api=api, panel_id=panel_id) if nest_data else None
 
     async def get_nest(self) -> Optional[Nest]:
         """(Re-)fetches the parent nest for this egg."""
@@ -296,3 +302,28 @@ class Egg:
             return self.nest # Return cached object if no API
         self.nest = await self.api.get_nest(self.nest_id)
         return self.nest
+
+# --- Other Models ---
+
+@dataclass
+class Panel:
+    id: str
+    base_url: str
+    games_domain: Optional[str] = None
+    client_key: Optional[str] = None
+    app_key: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data):
+        if "id" not in data:
+            raise ValueError("Missing required field: 'id'")
+        if "base_url" not in data:
+            raise ValueError("Missing required field: 'base_url'")
+        
+        return cls(
+            id=data["id"],
+            base_url=data["base_url"],
+            games_domain=data.get("games_domain"),
+            client_key=data.get("client_key"),
+            app_key=data.get("app_key"),
+        )

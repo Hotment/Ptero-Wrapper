@@ -1,6 +1,6 @@
 """
 Ptero-Wrapper Package
-An asynchronous API wrapper for the Pterodactyl Panel.
+An asynchronous, multi-panel API wrapper for the Pterodactyl Panel.
 """
 
 from .control import PteroControl
@@ -9,7 +9,7 @@ from .application import ApplicationAPI
 from .models import (
     EggVariable, Allocation, SftpDetails, Limits, FeatureLimits, Resource,
     Backup, Database, FileStat, Schedule, Task, Subuser,
-    Node, User, Location, Nest, Egg, NodeAllocation
+    Node, User, Location, Nest, Egg, NodeAllocation, Panel
 )
 
 __all__ = [
@@ -35,5 +35,6 @@ __all__ = [
     "Location",
     "Nest",
     "Egg",
-    "NodeAllocation"
+    "NodeAllocation",
+    "Panel"
 ]

@@ -19,31 +19,30 @@ logger = logging.getLogger("ptero_wrapper.client")
 class ClientServer:
     def __init__(self, 
                  srv_data: dict, 
+                 panel_id: str,
                  client_session: httpx.AsyncClient, 
-                 oci_client_session: httpx.AsyncClient, 
-                 base_url: str, 
-                 oci_base_url: str,
+                 base_url: str,
+                 games_domain: Optional[str],
+                 app_api: Optional['ApplicationAPI'] = None,
                  node_obj: Optional[Node] = None,
                  server_app_data: Optional[dict] = None,
-                 user_obj: Optional[User] = None,
-                 app_api: Optional['ApplicationAPI'] = None):
+                 user_obj: Optional[User] = None):
         
         self.data: dict = srv_data["attributes"]
         
-        # Main client sessions and URLs injected from the controller
+        # Panel-specific attributes
+        self.panel_id = panel_id
         self.session = client_session
-        self.oci_session = oci_client_session
         self.base_url = base_url
-        self.oci_base_url = oci_base_url
+        self.games_domain = games_domain
+        self.app: Optional['ApplicationAPI'] = app_api
         
-        # Handle cases where sessions might be None (if keys are missing)
+        # Handle cases where session might be None (if key is missing)
         self.client_headers = self.session.headers if self.session else {}
-        self.oci_client_headers = self.oci_session.headers if self.oci_session else {}
 
         # Basic attributes
         self.name: str = self.data["name"]
         self.identifier: str = self.data["identifier"]
-        self.oci: bool = False # Will be determined in _async_setup
         
         # Detailed attributes
         self.uuid: str = self.data["uuid"]
@@ -61,14 +60,13 @@ class ClientServer:
         self.is_transferring: bool = bool(self.data["is_transferring"])
         
         # --- Integrated Application API Data ---
-        self.app: Optional['ApplicationAPI'] = app_api
         self.node: Optional[Node] = node_obj
         self.app_details: Optional[dict] = server_app_data # Raw app attributes
         self.owner: Optional[User] = user_obj
         
         # Handle relationships
-        self.allocations = [Allocation(alloc["attributes"]) for alloc in srv_data.get("relationships", {}).get("allocations", {}).get("data", [])]
-        self.egg_variables = [EggVariable(var["attributes"]) for var in srv_data.get("relationships", {}).get("variables", {}).get("data", [])]
+        self.allocations = [Allocation(alloc["attributes"]) for alloc in self.data.get("relationships", {}).get("allocations", {}).get("data", [])]
+        self.egg_variables = [EggVariable(var["attributes"]) for var in self.data.get("relationships", {}).get("variables", {}).get("data", [])]
         
         # Websocket attributes
         self.ws_resp: Optional[httpx.Response] = None
@@ -81,10 +79,9 @@ class ClientServer:
     async def _async_setup(self):
         """Asynchronous setup tasks."""
         if not self.session: # If client API is disabled, we can't do any of this
-            logger.warning(f"Client API disabled, skipping async setup for server {self.identifier}")
+            logger.warning(f"Client API disabled for panel {self.panel_id}, skipping async setup for server {self.identifier}")
             return
             
-        self.oci = await self.check_oci()
         self.resources = await self.get_resources()
 
         ws_data = await self.get_websocket()
@@ -98,18 +95,18 @@ class ClientServer:
     @classmethod
     async def with_data(cls, 
                         srv_data: dict, 
+                        panel_id: str,
                         client_session: httpx.AsyncClient, 
-                        oci_client_session: httpx.AsyncClient, 
-                        base_url: str, 
-                        oci_base_url: str,
+                        base_url: str,
+                        games_domain: Optional[str] = None,
+                        app_api: Optional['ApplicationAPI'] = None,
                         node_obj: Optional[Node] = None,
                         server_app_data: Optional[dict] = None,
-                        user_obj: Optional[User] = None,
-                        app_api: Optional['ApplicationAPI'] = None):
+                        user_obj: Optional[User] = None):
         """Class method to create and asynchronously initialize an instance."""
-        client = cls(srv_data, client_session, oci_client_session, 
-                     base_url, oci_base_url, node_obj, server_app_data, 
-                     user_obj, app_api)
+        client = cls(srv_data, panel_id, client_session, base_url, games_domain,
+                     app_api, node_obj, server_app_data, 
+                     user_obj)
         await client._async_setup()
         return client
 
@@ -118,47 +115,18 @@ class ClientServer:
     # -----------------------------------------------------------------
 
     async def _client_request(self, method: str, endpoint: str, **kwargs) -> httpx.Response:
-        """Helper to make a request to the correct panel (normal or OCI)."""
-        session = self.oci_session if self.oci else self.session
-        url = self.oci_base_url if self.oci else self.base_url
-        
-        if not session:
-            logger.error(f"Client API request failed for {self.identifier}: Client is not enabled (missing API key).")
-            return httpx.Response(status_code=500, request=httpx.Request(method, f"{url}/client/servers/{self.identifier}/{endpoint}"), text="Client API not configured")
-
-        full_url = f"{url}/client/servers/{self.identifier}/{endpoint}"
-        
-        try:
-            return await session.request(method, full_url, **kwargs)
-        except httpx.RequestError as e:
-            logger.error(f"HTTP request failed for server {self.identifier}: {e}")
-            return httpx.Response(status_code=500, request=httpx.Request(method, full_url), text=str(e))
-
-    async def check_oci(self) -> bool:
-        """Checks if this server is on the OCI panel."""
-        # If OCI session doesn't exist, it can't be OCI
-        if not self.oci_session:
-            return False
-        # If normal session doesn't exist, it *must* be OCI (assuming valid server)
+        """Helper to make a request to the correct panel."""
         if not self.session:
-            return True
+            logger.error(f"Client API request failed for {self.identifier} on panel {self.panel_id}: Client is not enabled (missing API key).")
+            return httpx.Response(status_code=500, request=httpx.Request(method, f"{self.base_url}/client/servers/{self.identifier}/{endpoint}"), text="Client API not configured")
 
+        full_url = f"{self.base_url}/client/servers/{self.identifier}/{endpoint}"
+        
         try:
-            response = await self.session.get(f"{self.base_url}/client/servers/{self.identifier}/resources", timeout=3)
-            if response.status_code == 200:
-                return False
-        except httpx.RequestError:
-            pass # Failed, so check OCI
-
-        try:
-            response_oci = await self.oci_session.get(f"{self.oci_base_url}/client/servers/{self.identifier}/resources", timeout=3)
-            if response_oci.status_code == 200:
-                return True
-        except httpx.RequestError:
-            pass # OCI also failed
-            
-        logger.warning(f"Could not determine location (OCI/Main) for server {self.identifier}. Defaulting to Main.")
-        return False
+            return await self.session.request(method, full_url, **kwargs)
+        except httpx.RequestError as e:
+            logger.error(f"HTTP request failed for server {self.identifier} on panel {self.panel_id}: {e}")
+            return httpx.Response(status_code=500, request=httpx.Request(method, full_url), text=str(e))
 
     # -----------------------------------------------------------------
     # App API Lazy Loaders
@@ -169,22 +137,22 @@ class ClientServer:
         if self.owner: # Return cached if available
             return self.owner
         if not self.app:
-            logger.warning(f"Cannot get owner for {self.id}: Application API not configured.")
+            logger.warning(f"Cannot get owner for {self.id} on panel {self.panel_id}: Application API not configured.")
             return None
         if not self.app_details:
             # Try to fetch app details if they weren't provided during init
-            self.app_details = await self.app.get_server_details(self.id, oci=self.oci) # Assumes client ID == app ID
+            self.app_details = await self.app.get_server_details(self.id) # Assumes client ID == app ID
         
         if not self.app_details:
-            logger.warning(f"Cannot get owner for {self.id}: App details not found.")
+            logger.warning(f"Cannot get owner for {self.id} on panel {self.panel_id}: App details not found.")
             return None
             
         user_id = self.app_details.get('user')
         if not user_id:
-            logger.warning(f"Cannot get owner for {self.id}: Server app data has no user ID.")
+            logger.warning(f"Cannot get owner for {self.id} on panel {self.panel_id}: Server app data has no user ID.")
             return None
         
-        self.owner = await self.app.get_user(user_id, oci=self.oci)
+        self.owner = await self.app.get_user(user_id)
         return self.owner
 
     async def get_node(self) -> Optional[Node]:
@@ -192,10 +160,10 @@ class ClientServer:
         if self.node: # Return cached if available
             return self.node
         if not self.app:
-            logger.warning(f"Cannot get node for {self.id}: Application API not configured.")
+            logger.warning(f"Cannot get node for {self.id} on panel {self.panel_id}: Application API not configured.")
             return None
         
-        self.node = await self.app.get_node(self.node_id, oci=self.oci)
+        self.node = await self.app.get_node(self.node_id)
         return self.node
 
     # -----------------------------------------------------------------
@@ -209,9 +177,9 @@ class ClientServer:
             self.resources = Resource(response.json())
             return self.resources
         elif response.status_code == 404:
-            logger.warning(f"Server {self.identifier} not found while getting resources.")
+            logger.warning(f"Server {self.identifier} not found on panel {self.panel_id} while getting resources.")
         else:
-            logger.error(f"Error getting resources for {self.identifier}: {response.status_code} {response.text}")
+            logger.error(f"Error getting resources for {self.identifier} on panel {self.panel_id}: {response.status_code} {response.text}")
         return None
 
     async def get_websocket(self) -> Optional[Dict[str, str]]:
@@ -221,12 +189,12 @@ class ClientServer:
             self.ws_resp = response
             return response.json()["data"]
         self.ws_resp = response
-        logger.error(f"Failed to get websocket for {self.identifier}: {response.status_code} {response.text}")
+        logger.error(f"Failed to get websocket for {self.identifier} on panel {self.panel_id}: {response.status_code} {response.text}")
         return None
 
     async def refresh_websocket(self):
         """Refreshes websocket token and URL."""
-        logger.debug(f"Refreshing websocket for {self.identifier}")
+        logger.debug(f"Refreshing websocket for {self.identifier} on panel {self.panel_id}")
         ws_data = await self.get_websocket()
         if ws_data:
             self.ws_token = ws_data.get("token", "")
@@ -265,10 +233,10 @@ class ClientServer:
 
     async def send_command_with_output(self, command: str, timeout: int = 5) -> tuple[httpx.Response, str]: 
         """Sends a command and attempts to capture the immediate output via websocket."""
-        headers = (self.oci_client_headers if self.oci else self.client_headers).copy()
+        headers = self.client_headers.copy()
         headers.pop("Accept", None)
         headers.pop("Content-Type", None)
-        origin = (self.oci_base_url if self.oci else self.base_url).removesuffix("/api")
+        origin = self.base_url.removesuffix("/api")
         headers["Origin"] = origin
 
         if not self.ws_url or not self.ws_token:
@@ -293,15 +261,15 @@ class ClientServer:
                             auth_success = True
                             break
                         if message["event"] == "jwt error":
-                            logger.warning(f"JWT error for {self.identifier}, refreshing token and retrying.")
+                            logger.warning(f"JWT error for {self.identifier} on panel {self.panel_id}, refreshing token and retrying.")
                             await self.refresh_websocket()
                             return (httpx.Response(401, request=httpx.Request("POST", "command"), text="JWT Error"), "ws_fail:jwt")
                 except websockets.exceptions.ConnectionClosed:
-                     logger.error(f"Websocket closed prematurely during auth for {self.identifier}")
-                     return (httpx.Response(500, request=httpx.Request("POST", "command"), text="WebSocket closed during auth"), "ws_fail:auth_closed")
+                    logger.error(f"Websocket closed prematurely during auth for {self.identifier} on panel {self.panel_id}")
+                    return (httpx.Response(500, request=httpx.Request("POST", "command"), text="WebSocket closed during auth"), "ws_fail:auth_closed")
 
                 if not auth_success:
-                    logger.error(f"Websocket auth failed for {self.identifier}")
+                    logger.error(f"Websocket auth failed for {self.identifier} on panel {self.panel_id}")
                     return (httpx.Response(401, request=httpx.Request("POST", "command"), text="WebSocket auth failed"), "ws_fail:auth")
 
                 while True:
@@ -334,13 +302,13 @@ class ClientServer:
                     return resp, "ws_timeout"
 
         except websockets.exceptions.InvalidStatus as e:
-            logger.error(f"Failed to establish websocket (InvalidStatus) for {self.identifier} from origin: {origin}: {e}")
+            logger.error(f"Failed to establish websocket (InvalidStatus) for {self.identifier} (origin: {origin}): {e}")
             if e.status_code == 401 or e.status_code == 403:
                 logger.info(f"Refreshing websocket due to {e.status_code}...")
                 await self.refresh_websocket()
             return (httpx.Response(e.status_code, request=httpx.Request("POST", "command"), text=str(e)), "ws_fail:connect")
         except Exception as e:
-            logger.error(f"Generic websocket failure for {self.identifier}: {e}")
+            logger.error(f"Generic websocket failure for {self.identifier} on panel {self.panel_id}: {e}")
             return (httpx.Response(500, request=httpx.Request("POST", "command"), text=str(e)), "ws_fail:generic")
 
         return (httpx.Response(500, request=httpx.Request("POST", "command"), text="No output captured"), "ws_no_output")
@@ -362,7 +330,7 @@ class ClientServer:
         resp = await self._client_request("POST", "backups", json=payload)
         if resp.status_code == 200:
             return Backup(resp.json())
-        logger.error(f"Failed to create backup for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to create backup for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def get_backup_details(self, backup_uuid: str) -> Optional[Backup]:
@@ -375,7 +343,7 @@ class ClientServer:
         resp = await self._client_request("POST", f"backups/{backup_uuid}/download")
         if resp.status_code == 200:
             return resp.json()["attributes"]["url"]
-        logger.error(f"Failed to get backup download for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to get backup download for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def restore_backup(self, backup_uuid: str, truncate_files: bool = False) -> httpx.Response:
@@ -402,7 +370,7 @@ class ClientServer:
         resp = await self._client_request("POST", "databases", json=payload)
         if resp.status_code == 200:
             return Database(resp.json())
-        logger.error(f"Failed to create database for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to create database for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def rotate_database_password(self, database_id: str) -> httpx.Response:
@@ -441,18 +409,15 @@ class ClientServer:
         return await self._client_request("POST", "files/copy", json={"location": location})
 
     async def write_file(self, file_path: str, content: str) -> httpx.Response:
-        headers = (self.oci_client_headers if self.oci else self.client_headers).copy()
+        headers = self.client_headers.copy()
         headers["Content-Type"] = "text/plain"
         
-        session = self.oci_session if self.oci else self.session
-        url = self.oci_base_url if self.oci else self.base_url
-        
-        if not session:
-             return httpx.Response(status_code=500, request=httpx.Request("POST", f"{url}/client/servers/{self.identifier}/files/write"), text="Client API not configured")
+        if not self.session:
+            return httpx.Response(status_code=500, request=httpx.Request("POST", f"{self.base_url}/client/servers/{self.identifier}/files/write"), text="Client API not configured")
 
-        full_url = f"{url}/client/servers/{self.identifier}/files/write"
+        full_url = f"{self.base_url}/client/servers/{self.identifier}/files/write"
         
-        return await session.post(full_url, params={"file": file_path}, content=content, headers=headers)
+        return await self.session.post(full_url, params={"file": file_path}, content=content, headers=headers)
 
     async def compress_files(self, root: str, files: List[str]) -> Optional[FileStat]:
         payload = {"root": root, "files": files}
@@ -518,7 +483,7 @@ class ClientServer:
         resp = await self._client_request("POST", "schedules", json=payload)
         if resp.status_code == 200:
             return Schedule(resp.json())
-        logger.error(f"Failed to create schedule for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to create schedule for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def get_schedule(self, schedule_id: int) -> Optional[Schedule]:
@@ -540,7 +505,7 @@ class ClientServer:
         resp = await self._client_request("POST", f"schedules/{schedule_id}", json=payload)
         if resp.status_code == 200:
             return Schedule(resp.json())
-        logger.error(f"Failed to update schedule {schedule_id} for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to update schedule {schedule_id} for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def delete_schedule(self, schedule_id: int) -> httpx.Response:
@@ -551,7 +516,7 @@ class ClientServer:
         resp = await self._client_request("POST", f"schedules/{schedule_id}/tasks", json=payload_json)
         if resp.status_code == 200:
             return Task(resp.json()["attributes"])
-        logger.error(f"Failed to create task for schedule {schedule_id}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to create task for schedule {schedule_id} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def update_task(self, schedule_id: int, task_id: int, action: str, payload: str, time_offset: int) -> Optional[Task]:
@@ -559,7 +524,7 @@ class ClientServer:
         resp = await self._client_request("POST", f"schedules/{schedule_id}/tasks/{task_id}", json=payload_json)
         if resp.status_code == 200:
             return Task(resp.json()["attributes"])
-        logger.error(f"Failed to update task {task_id} for schedule {schedule_id}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to update task {task_id} for schedule {schedule_id} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
         
     async def delete_task(self, schedule_id: int, task_id: int) -> httpx.Response:
@@ -597,7 +562,7 @@ class ClientServer:
         resp = await self._client_request("PUT", "startup/variable", json=payload)
         if resp.status_code == 200:
             return EggVariable(resp.json()["attributes"])
-        logger.error(f"Failed to update startup var {key} for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to update startup var {key} for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     # -----------------------------------------------------------------
@@ -615,7 +580,7 @@ class ClientServer:
         resp = await self._client_request("POST", "users", json=payload)
         if resp.status_code == 200:
             return Subuser(resp.json())
-        logger.error(f"Failed to create subuser for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to create subuser for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def get_subuser(self, user_uuid: str) -> Optional[Subuser]:
@@ -629,7 +594,7 @@ class ClientServer:
         resp = await self._client_request("POST", f"users/{user_uuid}", json=payload)
         if resp.status_code == 200:
             return Subuser(resp.json())
-        logger.error(f"Failed to update subuser {user_uuid} for {self.identifier}: {resp.status_code} {resp.text}")
+        logger.error(f"Failed to update subuser {user_uuid} for {self.identifier} on panel {self.panel_id}: {resp.status_code} {resp.text}")
         return None
 
     async def delete_subuser(self, user_uuid: str) -> httpx.Response:
