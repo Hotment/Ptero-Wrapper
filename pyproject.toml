@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ptero"
-version = "0.1"
+version = "0.2"
 readme = "README.md"
 requires-python = ">= 3.8"
 authors = [
@@ -36,6 +36,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/Hotment/ptero-wrapper"
 Repository = "https://github.com/Hotment/ptero-wrapper"
+Documentation = "https://github.com/Hotment/Ptero-Wrapper/blob/main/DOCUMENTATION.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
