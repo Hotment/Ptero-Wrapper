@@ -1,7 +1,7 @@
 # Ptero-Wrapper
 An asynchronous, feature-rich Python wrapper for the Pterodactyl Panel API.
 
-`ptero-wrapper` is designed to provide a clean, modern, and fully `async` interface for both the Pterodactyl **Client API** and **Application API.** It's built on `httpx` and `asyncio`, making it highly performant for modern applications.
+`ptero` is designed to provide a clean, modern, and fully `async` interface for both the Pterodactyl **Client API** and **Application API.** It's built on `httpx` and `asyncio`, making it highly performant for modern applications.
 
 A key feature of this wrapper is its built-in support for **multi-panel operation**, allowing you to seamlessly manage servers across multiple different Pterodactyl instances with a single controller.
 
