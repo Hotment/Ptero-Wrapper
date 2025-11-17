@@ -15,14 +15,14 @@ A key feature of this wrapper is its built-in support for **multi-panel operatio
 
 ## Installation
 ```
-pip install ptero-wrapper
+pip install ptero
 ```
 
 ## Quick Start
 Here's a simple example of how to instantiate the controller and manage a server.
 ```python
 import asyncio
-from ptero_wrapper import PteroControl, Panel
+from ptero import PteroControl, Panel
 
 # Define your panel configurations
 panels_config = [
