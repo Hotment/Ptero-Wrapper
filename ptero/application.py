@@ -7,7 +7,7 @@ import httpx, logging
 from typing import Optional, List, Dict, Any
 from .models import User, Node, Location, Nest, Egg, NodeAllocation
 
-logger = logging.getLogger("ptero_wrapper.application")
+logger = logging.getLogger("ptero.application")
 
 class ApplicationAPI:
     def __init__(self, 

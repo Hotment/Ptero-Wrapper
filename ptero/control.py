@@ -9,7 +9,7 @@ from .client import ClientServer
 from .application import ApplicationAPI
 from .models import Node, User, Panel
 
-logger = logging.getLogger("ptero_wrapper.control")
+logger = logging.getLogger("ptero.control")
 
 class PteroControl:
     def __init__(self, panels: List[Union[Dict[str, str], Panel]]):

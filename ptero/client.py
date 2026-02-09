@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .application import ApplicationAPI
 
 ANSI_ESCAPE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-logger = logging.getLogger("ptero_wrapper.client")
+logger = logging.getLogger("ptero.client")
 
 class ClientServer:
     def __init__(self, 
