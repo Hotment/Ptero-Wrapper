@@ -82,13 +82,22 @@ class ClientServer:
             logger.warning(f"Client API disabled for panel {self.panel_id}, skipping async setup for server {self.identifier}")
             return
             
-        self.resources = await self.get_resources()
-
-        ws_data = await self.get_websocket()
-        if ws_data:
-            self.ws_token = ws_data.get("token", "")
-            self.ws_url = ws_data.get("socket", "")
-        else:
+        if not self.is_installing:
+            try:
+                self.resources = await self.get_resources()
+            except Exception as e:
+                logger.warning(f"Failed to get resources for {self.identifier} during setup: {e}")
+        
+        try:
+            ws_data = await self.get_websocket()
+            if ws_data:
+                self.ws_token = ws_data.get("token", "")
+                self.ws_url = ws_data.get("socket", "")
+            else:
+                self.ws_token = ""
+                self.ws_url = ""
+        except Exception as e:
+            logger.warning(f"Failed to get websocket for {self.identifier} during setup: {e}")
             self.ws_token = ""
             self.ws_url = ""
 

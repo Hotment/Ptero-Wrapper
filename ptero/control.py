@@ -54,14 +54,16 @@ class PteroControl:
             client_key = config.client_key
             if client_key:
                 headers = {'Accept': 'application/json','Content-Type':'application/json','Authorization': f'Bearer {client_key}'}
-                self.client_sessions[panel_id] = httpx.AsyncClient(headers=headers, event_hooks={'response': [self._check_rate_limit]})
+                self.client_sessions[panel_id] = httpx.AsyncClient(headers=headers, event_hooks={'response': [self._check_rate_limit]}, timeout=30.0)
             
             # Setup App
             app_key = config.app_key
             if app_key:
                 app_headers = {'Accept': 'application/json','Content-Type':'application/json','Authorization': f'Bearer {app_key}'}
-                app_session = httpx.AsyncClient(headers=app_headers, event_hooks={'response': [self._check_rate_limit]})
-                self.app_apis[panel_id] = ApplicationAPI(app_session, base_url, panel_id)
+                app_session = httpx.AsyncClient(headers=app_headers, event_hooks={'response': [self._check_rate_limit]}, timeout=30.0)
+                self.app_apis[config.id] = ApplicationAPI(app_session, base_url, config.id)
+            else:
+                self.app_apis[config.id] = ApplicationAPI(None, base_url, config.id)
     
         # Internal cache for API integration
         self._node_cache: Dict[Tuple[str, int], Node] = {} # Key: (panel_id, node_id)
@@ -255,7 +257,7 @@ class PteroControl:
         server = await ClientServer.with_data(server_data, found_panel_id, client_session, base_url, games_domain,
                                             app_api, node_obj, server_app_data, user_obj)
         
-        if not server.resources: 
+        if not server.resources and not server.is_installing: 
             logger.error(f"An error occurred while getting server object {id} (missing resources) {response.json()}")
             return None
         return server
