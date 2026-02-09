@@ -28,19 +28,19 @@ from ptero import PteroControl, Panel
 panels_config = [
     Panel(
         id='main_panel',
-        base_url='[https://panel.example.com/api](https://panel.example.com/api)',
+        base_url='https://panel.example.com/api',
         client_key='ptlc_MainKey...',
         app_key='ptla_MainKey...'
     ),
     Panel(
         id='oci_panel',
-        base_url='[http://panel2.example.com/api](http://panel2.example.com/api)',
+        base_url='http://panel2.example.com/api',
         client_key='ptlc_OciKey...',
         app_key='ptla_OciKey...'
     ),
     Panel(
         id='test_panel',
-        base_url='[http://testpanel.example.com/api](http://testpanel.example.com/api)',
+        base_url='http://testpanel.example.com/api',
         client_key='ptlc_TestKey...'
         # This panel has no app key
     )
